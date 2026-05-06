@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Morkoç Ailesi Soyağacı</title>
-    <!-- Gerekli Kütüphaneler -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -12,11 +11,8 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f5f3ff; }
-        .scroll-smooth { scroll-behavior: smooth; }
+        body { font-family: 'Inter', sans-serif; background-color: #f5f3ff; color: #1e1b4b; }
         .group:hover .group-hover\:opacity-100 { opacity: 1; }
-        .group:hover .group-hover\:z-50 { z-index: 50; }
-        .group:hover .group-hover\:scale-\[2\.5\] { transform: scale(2.5); }
     </style>
 </head>
 <body>
@@ -25,10 +21,10 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // --- BURAYA KENDİ BİLGİLERİNİZİ YAZIN ---
+        // --- SUPABASE BİLGİLERİNİZİ BURAYA YAZIN ---
         const SUPABASE_URL = "https://cqzzgiraaglehokkcxil.supabase.co"; 
         const SUPABASE_ANON_KEY = "sb_publishable_kaGxoYXoxvjQCP-1plOfkQ_o-EUIBxe";
-        // ----------------------------------------
+        // -------------------------------------------
 
         const App = () => {
             const [supabaseClient, setSupabaseClient] = useState(null);
@@ -43,11 +39,11 @@
             const [errorMessage, setErrorMessage] = useState(null);
             const [highlightedId, setHighlightedId] = useState(null);
             const [isLoading, setIsLoading] = useState(true);
+            const [isSaving, setIsSaving] = useState(false);
             const [draggedId, setDraggedId] = useState(null);
             
             const fileInputRef = useRef(null);
 
-            // Supabase Kütüphanesini Dinamik Olarak Yükle
             useEffect(() => {
                 const loadSupabase = () => {
                     const script = document.createElement('script');
@@ -57,8 +53,6 @@
                         if (window.supabase) {
                             const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                             setSupabaseClient(client);
-                        } else {
-                            setErrorMessage("Veritabanı bağlantısı kurulamadı.");
                         }
                     };
                     document.body.appendChild(script);
@@ -66,325 +60,146 @@
                 loadSupabase();
             }, []);
 
-            // Verileri Çek ve Gerçek Zamanlı Dinle
             useEffect(() => {
-                if (!supabaseClient) return;
-                fetchMembers();
-
-                const channel = supabaseClient
-                    .channel('schema-db-changes')
-                    .on('postgres_changes', { event: '*', schema: 'public', table: 'family_members' }, () => {
-                        fetchMembers();
-                    })
-                    .subscribe();
-
-                return () => {
-                    supabaseClient.removeChannel(channel);
-                };
+                if (supabaseClient) fetchMembers();
             }, [supabaseClient]);
 
             const fetchMembers = async () => {
                 setIsLoading(true);
-                const { data, error } = await supabaseClient
-                    .from('family_members')
-                    .select('*')
-                    .order('order', { ascending: true });
-
-                if (error) {
-                    setErrorMessage("Veri çekilemedi: " + error.message);
-                } else {
-                    setFamilyMembers(data || []);
-                }
+                const { data, error } = await supabaseClient.from('family_members').select('*').order('order', { ascending: true });
+                if (!error) setFamilyMembers(data || []);
                 setIsLoading(false);
-                setTimeout(() => lucide.createIcons(), 200); // İkonları yenile
+                setTimeout(() => lucide.createIcons(), 200);
             };
 
             const handleLogin = (e) => {
                 e.preventDefault();
-                const { roleSelection, password } = loginData;
-                
-                if (roleSelection === 'admin') {
-                    if (password === '1234') {
-                        setIsAuthenticated(true);
-                        setUserRole('admin');
-                        setErrorMessage(null);
-                    } else {
-                        setErrorMessage("Hatalı yönetici şifresi!");
-                    }
+                if (loginData.roleSelection === 'admin' && loginData.password === '1234') {
+                    setIsAuthenticated(true); setUserRole('admin'); setErrorMessage(null);
+                } else if (loginData.roleSelection === 'visitor') {
+                    setIsAuthenticated(true); setUserRole('visitor');
                 } else {
-                    setIsAuthenticated(true);
-                    setUserRole('visitor');
-                    setErrorMessage(null);
+                    setErrorMessage("Hatalı şifre!");
                 }
                 setTimeout(() => lucide.createIcons(), 200);
-            };
-
-            const handlePhotoChange = (e) => {
-                if (userRole !== 'admin') return;
-                const file = e.target.files[0];
-                if (file) {
-                    if (file.size > 800 * 1024) { 
-                        setErrorMessage("Fotoğraf boyutu çok büyük (Maks 800KB).");
-                        return;
-                    }
-                    const reader = new FileReader();
-                    reader.onloadend = () => setFormData({ ...formData, photo: reader.result });
-                    reader.readAsDataURL(file);
-                }
             };
 
             const saveMember = async (e) => {
                 e.preventDefault();
-                if (userRole !== 'admin' || !supabaseClient) return;
-
+                if (isSaving) return; // Çift kaydı engellemek için
+                setIsSaving(true);
                 try {
                     if (modalMode === 'edit') {
-                        const { error } = await supabaseClient.from('family_members').update(formData).eq('id', activeMember.id);
-                        if (error) throw error;
+                        await supabaseClient.from('family_members').update(formData).eq('id', activeMember.id);
                     } else if (modalMode === 'add-child') {
                         const order = familyMembers.filter(m => m.parent_id === activeMember.id).length;
-                        const { error } = await supabaseClient.from('family_members').insert([{ ...formData, parent_id: activeMember.id, order }]);
-                        if (error) throw error;
+                        await supabaseClient.from('family_members').insert([{ ...formData, parent_id: activeMember.id, order }]);
                     } else if (modalMode === 'add-spouse') {
-                        const { data: newSpouse, error: sError } = await supabaseClient.from('family_members').insert([{ ...formData, spouse_id: activeMember.id }]).select().single();
-                        if (sError) throw sError;
+                        const { data: newSpouse } = await supabaseClient.from('family_members').insert([{ ...formData, spouse_id: activeMember.id }]).select().single();
                         await supabaseClient.from('family_members').update({ spouse_id: newSpouse.id }).eq('id', activeMember.id);
                     } else if (modalMode === 'add-root') {
-                        const { error } = await supabaseClient.from('family_members').insert([{ ...formData, order: roots.length }]);
-                        if (error) throw error;
+                        await supabaseClient.from('family_members').insert([{ ...formData, order: familyMembers.length }]);
                     }
-                    closeModal();
-                    fetchMembers();
-                } catch (error) {
-                    setErrorMessage("İşlem başarısız: " + error.message);
-                }
+                    setModalMode(null);
+                    await fetchMembers();
+                } catch (err) { setErrorMessage("İşlem başarısız."); }
+                finally { setIsSaving(false); }
             };
 
             const deleteMember = async (id) => {
-                if (userRole !== 'admin' || !supabaseClient) return;
-                const member = familyMembers.find(m => m.id === id);
-                if (!member) return;
-
-                const hasChildren = familyMembers.some(m => m.parent_id === id || (member.spouse_id && m.parent_id === member.spouse_id));
-                if (hasChildren) {
-                    setErrorMessage("Önce altındaki çocukları silmelisiniz.");
-                    return;
-                }
-
-                if (window.confirm(`${member.name} silinecek. Emin misiniz?`)) {
-                    const { error } = await supabaseClient.from('family_members').delete().eq('id', id);
-                    if (error) setErrorMessage("Silinemedi.");
-                    else fetchMembers();
-                }
-            };
-
-            const openModal = (mode, member = null) => {
                 if (userRole !== 'admin') return;
-                setModalMode(mode);
-                setActiveMember(member);
-                if (mode === 'edit' && member) {
-                    setFormData({ name: member.name, is_alive: member.is_alive, gender: member.gender, parents_info: member.parents_info || '', photo: member.photo });
-                } else {
-                    setFormData({ name: '', is_alive: 'Evet', gender: 'male', parents_info: '', photo: null });
+                if (window.confirm("Bu üyeyi silmek istediğinize emin misiniz?")) {
+                    const { error } = await supabaseClient.from('family_members').delete().eq('id', id);
+                    if (!error) fetchMembers();
                 }
-                setTimeout(() => lucide.createIcons(), 200);
             };
 
-            const closeModal = () => { setModalMode(null); setActiveMember(null); };
-
-            const focusOnMember = (id) => {
-                setSearchTerm('');
-                setHighlightedId(id);
-                setTimeout(() => {
-                    const element = document.querySelector(`[data-member-id="${id}"]`);
-                    if (element) element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
-                }, 100);
-                setTimeout(() => setHighlightedId(null), 4000);
-            };
-
+            // KRİTİK: Çift ağaç problemini çözen kök ayıklama mantığı
             const roots = useMemo(() => {
+                const processedRootIds = new Set();
                 return familyMembers.filter(m => {
-                    if (m.parent_id) return false;
+                    if (m.parent_id) return false; // Ebeveyni olan kök olamaz
+                    if (processedRootIds.has(m.id)) return false; // Zaten işlendiyse atla
+
                     if (m.spouse_id) {
                         const spouse = familyMembers.find(f => f.id === m.spouse_id);
+                        // Eğer eşin ebeveyni varsa, kök o değildir, ebeveyni olan taraftan bağlanır
                         if (spouse && spouse.parent_id) return false;
-                        if (spouse && !spouse.parent_id && (m.order || 0) > (spouse.order || 0)) return false;
+                        // Eşlerin ikisinin de ebeveyni yoksa, sadece birini (ID'si küçük olanı) kök seç
+                        if (spouse && !spouse.parent_id) {
+                            processedRootIds.add(m.spouse_id);
+                        }
                     }
                     return true;
                 }).sort((a, b) => (a.order || 0) - (b.order || 0));
             }, [familyMembers]);
 
-            const searchSuggestions = useMemo(() => {
-                if (!searchTerm.trim() || searchTerm.length < 2) return [];
-                return familyMembers.filter(m => m.name.toLowerCase().includes(searchTerm.toLowerCase())).slice(0, 5);
-            }, [searchTerm, familyMembers]);
-
-            // Sürükle Bırak Mantığı
-            const handleDragStart = (id) => { if (userRole === 'admin') setDraggedId(id); };
-            const handleDragOver = (e) => e.preventDefault();
-            const handleDrop = async (targetId) => {
-                if (!draggedId || draggedId === targetId || userRole !== 'admin' || !supabaseClient) return;
-                
-                const draggedMember = familyMembers.find(m => m.id === draggedId);
-                const targetMember = familyMembers.find(m => m.id === targetId);
-                if (!draggedMember || !targetMember) return;
-
-                if (draggedMember.parent_id === targetMember.parent_id) {
-                    await supabaseClient.from('family_members').update({ order: targetMember.order }).eq('id', draggedId);
-                    await supabaseClient.from('family_members').update({ order: draggedMember.order }).eq('id', targetId);
-                } 
-                else if (draggedMember.spouse_id === targetId || targetMember.spouse_id === draggedId) {
-                    const anchor = draggedMember.parent_id || roots.find(r => r.id === draggedId) ? draggedMember : targetMember;
-                    const spouse = anchor.id === draggedId ? targetMember : draggedMember;
-
-                    await supabaseClient.from('family_members').update({ parent_id: anchor.parent_id, order: anchor.order }).eq('id', spouse.id);
-                    await supabaseClient.from('family_members').update({ parent_id: null, order: 0 }).eq('id', anchor.id);
-
-                    const children = familyMembers.filter(m => m.parent_id === anchor.id);
-                    for (const child of children) {
-                        await supabaseClient.from('family_members').update({ parent_id: spouse.id }).eq('id', child.id);
-                    }
-                }
-                setDraggedId(null);
-                fetchMembers();
-            };
-
-            const MemberCard = ({ member, role, onEdit, onAddChild, onAddSpouse, isHighlighted, hasChildren, onDragStart, onDragOver, onDrop, isBeingDragged }) => {
+            const MemberCard = ({ member, role, onEdit, onAddChild, onAddSpouse, isSpouse, hasChildren }) => {
                 const isAdmin = role === 'admin';
                 const isFemale = member.gender === 'female';
-                
                 return (
-                    <div 
-                        data-member-id={member.id}
-                        draggable={isAdmin}
-                        onDragStart={() => onDragStart(member.id)}
-                        onDragOver={onDragOver}
-                        onDrop={() => onDrop(member.id)}
-                        className={`group relative p-3 rounded-lg shadow-sm border transition-all duration-500 w-40 flex-shrink-0
-                        ${isAdmin ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'}
-                        ${isBeingDragged ? 'opacity-30 scale-95 border-dashed border-purple-400 shadow-inner' : ''}
-                        ${isHighlighted ? 'ring-4 ring-purple-500 ring-offset-2 scale-110 z-30 shadow-2xl bg-white animate-pulse' : 'hover:shadow-md'}
-                        ${member.is_alive === 'Hayır' ? 'grayscale-[0.6] opacity-80' : ''}
-                        ${isFemale ? 'bg-rose-50 border-rose-200' : 'bg-indigo-50 border-indigo-200'}`}
-                    >
-                        {isAdmin && (
-                            <div className="absolute top-1 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <i data-lucide="grip-horizontal" className="w-3 h-3 text-gray-300"></i>
-                            </div>
-                        )}
-                        <div className="absolute -top-6 -right-2 z-20">
-                            <div className="relative group/photo">
-                                {member.photo ? (
-                                    <img src={member.photo} className="w-10 h-10 rounded-full border-2 border-white shadow-md object-cover transition-all duration-300 group-hover/photo:scale-[2.5] group-hover/photo:z-50 origin-top-right bg-white" />
-                                ) : (
-                                    <div className={`w-10 h-10 rounded-full border-2 border-white shadow-md flex items-center justify-center ${isFemale ? 'bg-rose-200 text-rose-600' : 'bg-indigo-200 text-indigo-600'}`}>
-                                        <i data-lucide="user" className="w-5 h-5"></i>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                        <div className="flex justify-between items-start mb-1 pt-1">
-                            <div className={`p-1 rounded ${isFemale ? 'bg-rose-500' : 'bg-indigo-500'} text-white`}>
-                                <i data-lucide="user" className="w-3 h-3"></i>
+                    <div className={`group relative p-3 rounded-xl shadow-sm border transition-all w-44 
+                        ${isFemale ? 'bg-rose-50 border-rose-200' : 'bg-indigo-50 border-indigo-200'}
+                        ${highlightedId === member.id ? 'ring-4 ring-purple-500 scale-105' : ''}`}>
+                        
+                        <div className="flex justify-between items-start mb-2">
+                            <div className={`p-1.5 rounded-lg ${isFemale ? 'bg-rose-500' : 'bg-indigo-500'} text-white`}>
+                                <i data-lucide="user" className="w-3.5 h-3.5"></i>
                             </div>
                             {isAdmin && (
-                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity relative z-30">
-                                    <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="p-1 bg-white rounded border shadow-sm text-gray-500 hover:text-purple-600 cursor-pointer pointer-events-auto">
-                                        <i data-lucide="edit-2" className="w-2.5 h-2.5"></i>
-                                    </button>
-                                    <button onClick={(e) => { e.stopPropagation(); deleteMember(member.id); }} className={`p-1 rounded border shadow-sm cursor-pointer pointer-events-auto ${hasChildren ? 'text-gray-200 cursor-not-allowed bg-gray-50' : 'text-gray-500 hover:text-red-600 bg-white'}`}>
-                                        <i data-lucide="trash-2" className="w-2.5 h-2.5"></i>
-                                    </button>
+                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button onClick={onEdit} className="p-1 bg-white rounded border hover:text-purple-600"><i data-lucide="edit-2" className="w-3 h-3"></i></button>
+                                    <button onClick={() => deleteMember(member.id)} className="p-1 bg-white rounded border hover:text-red-600"><i data-lucide="trash-2" className="w-3 h-3"></i></button>
                                 </div>
                             )}
                         </div>
-                        <h4 className="font-bold text-gray-800 truncate text-[13px] leading-tight pr-6">{member.name}</h4>
-                        <div className="mt-1 flex flex-col gap-0.5">
-                            <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full w-fit ${member.is_alive === 'Evet' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>
-                                {member.is_alive === 'Evet' ? 'HAYATTA' : 'VEFAT'}
-                            </span>
-                            {member.parents_info && (
-                                <p className="text-[8px] text-gray-500 italic mt-0.5 truncate" title={`Ailesi: ${member.parents_info}`}>Ailesi: {member.parents_info}</p>
-                            )}
-                        </div>
+                        <h4 className="font-bold text-gray-800 truncate text-sm">{member.name}</h4>
+                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full mt-1 inline-block ${member.is_alive === 'Evet' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>
+                            {member.is_alive === 'Evet' ? 'HAYATTA' : 'VEFAT'}
+                        </span>
+                        {member.parents_info && <p className="text-[8px] text-gray-400 mt-1 italic truncate">Ailesi: {member.parents_info}</p>}
+                        
                         {isAdmin && (
-                            <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all z-30">
-                                {!member.spouse_id && onAddSpouse && (
-                                    <button onClick={(e) => { e.stopPropagation(); onAddSpouse(); }} className="p-1.5 bg-purple-500 text-white rounded-full shadow-lg hover:scale-110 cursor-pointer pointer-events-auto">
-                                        <i data-lucide="heart" className="w-3 h-3"></i>
-                                    </button>
-                                )}
-                                {onAddChild && (
-                                    <button onClick={(e) => { e.stopPropagation(); onAddChild(); }} className="p-1.5 bg-indigo-500 text-white rounded-full shadow-lg hover:scale-110 cursor-pointer pointer-events-auto">
-                                        <i data-lucide="baby" className="w-3 h-3"></i>
-                                    </button>
-                                )}
+                            <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                {!member.spouse_id && <button onClick={onAddSpouse} className="p-1.5 bg-purple-500 text-white rounded-full shadow hover:scale-110"><i data-lucide="heart" className="w-3 h-3"></i></button>}
+                                <button onClick={onAddChild} className="p-1.5 bg-indigo-500 text-white rounded-full shadow hover:scale-110"><i data-lucide="baby" className="w-3 h-3"></i></button>
                             </div>
                         )}
                     </div>
                 );
             };
 
-            const FamilyNode = ({ memberId, processedIds = new Set() }) => {
-                if (processedIds.has(memberId)) return null;
+            const FamilyNode = ({ memberId, processedInTree = new Set() }) => {
+                if (processedInTree.has(memberId)) return null;
                 const member = familyMembers.find(m => m.id === memberId);
                 if (!member) return null;
-                processedIds.add(memberId);
+                processedInTree.add(memberId);
 
                 const spouse = member.spouse_id ? familyMembers.find(f => f.id === member.spouse_id) : null;
-                if (spouse) processedIds.add(spouse.id);
+                if (spouse) processedInTree.add(spouse.id);
 
-                const children = familyMembers.filter(m => 
-                    m.parent_id === member.id || (spouse && m.parent_id === spouse.id)
-                ).sort((a, b) => (a.order || 0) - (b.order || 0));
+                const children = familyMembers.filter(m => m.parent_id === member.id || (spouse && m.parent_id === spouse.id));
 
                 return (
                     <div className="flex flex-col items-center">
-                        <div className="flex items-center gap-1 relative">
-                            <MemberCard 
-                                member={member} 
-                                role={userRole}
-                                onEdit={() => openModal('edit', member)} 
-                                onAddChild={() => openModal('add-child', member)} 
-                                onAddSpouse={() => openModal('add-spouse', member)} 
-                                hasChildren={children.length > 0}
-                                isHighlighted={highlightedId === member.id}
-                                onDragStart={handleDragStart}
-                                onDragOver={handleDragOver}
-                                onDrop={handleDrop}
-                                isBeingDragged={draggedId === member.id}
-                            />
+                        <div className="flex items-center gap-1">
+                            <MemberCard member={member} role={userRole} onEdit={() => openModal('edit', member)} onAddChild={() => openModal('add-child', member)} onAddSpouse={() => openModal('add-spouse', member)} hasChildren={children.length > 0} />
                             {spouse && (
-                                <>
-                                    <div className="w-8 h-0.5 bg-purple-300 flex items-center justify-center relative">
-                                        <i data-lucide="heart" className="w-3 h-3 text-purple-500 fill-purple-500 absolute"></i>
-                                    </div>
-                                    <MemberCard 
-                                        member={spouse} 
-                                        role={userRole}
-                                        onEdit={() => openModal('edit', spouse)} 
-                                        onAddChild={() => openModal('add-child', spouse)} 
-                                        onAddSpouse={null}
-                                        hasChildren={children.length > 0}
-                                        isHighlighted={highlightedId === spouse.id}
-                                        onDragStart={handleDragStart}
-                                        onDragOver={handleDragOver}
-                                        onDrop={handleDrop}
-                                        isBeingDragged={draggedId === spouse.id}
-                                    />
-                                </>
+                                <React.Fragment>
+                                    <div className="w-8 h-px bg-purple-300 relative"><i data-lucide="heart" className="w-3 h-3 text-purple-400 absolute left-1/2 -translate-x-1/2 -top-1.5 fill-purple-400"></i></div>
+                                    <MemberCard member={spouse} role={userRole} onEdit={() => openModal('edit', spouse)} onAddChild={() => openModal('add-child', spouse)} isSpouse hasChildren={children.length > 0} />
+                                </React.Fragment>
                             )}
                         </div>
-
                         {children.length > 0 && (
                             <div className="flex flex-col items-center mt-10 relative">
-                                <div className="absolute -top-10 w-0.5 h-10 bg-gray-300"></div>
-                                <div className="flex gap-12 pt-4 relative">
-                                    {children.length > 1 && <div className="absolute top-0 left-[15%] right-[15%] h-0.5 bg-gray-300"></div>}
+                                <div className="w-px h-10 bg-gray-300"></div>
+                                <div className="flex gap-10 pt-4 relative">
+                                    {children.length > 1 && <div className="absolute top-0 left-1/2 -translate-x-1/2 h-px bg-gray-300" style={{width: 'calc(100% - 40px)'}}></div>}
                                     {children.map(child => (
                                         <div key={child.id} className="relative">
-                                            <div className="absolute top-0 left-1/2 -translate-x-1/2 h-4 w-0.5 bg-gray-300"></div>
-                                            <FamilyNode memberId={child.id} processedIds={processedIds} />
+                                            <div className="absolute -top-4 left-1/2 w-px h-4 bg-gray-300"></div>
+                                            <FamilyNode memberId={child.id} processedInTree={processedInTree} />
                                         </div>
                                     ))}
                                 </div>
@@ -394,135 +209,87 @@
                 );
             };
 
-            // Login Ekranı
-            if (!isAuthenticated) {
-                return (
-                    <div className="min-h-screen bg-[#1e1b4b] flex items-center justify-center p-4">
-                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-                            <div className="bg-purple-600 p-10 text-center text-white">
-                                <i data-lucide="tree-deciduous" className="w-16 h-16 mx-auto mb-4"></i>
-                                <h2 className="text-3xl font-bold uppercase tracking-tighter">Morkoç Ailesi</h2>
-                                <p className="text-purple-100 text-xs mt-2 uppercase tracking-widest">Soyağacı Portalı</p>
-                            </div>
-                            <form onSubmit={handleLogin} className="p-8 space-y-6">
-                                <div>
-                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-1">Giriş Türü</label>
-                                    <select className="w-full px-4 py-3 rounded-xl border outline-none focus:ring-2 focus:ring-purple-500 mt-1 bg-gray-50 font-bold"
-                                        value={loginData.roleSelection} onChange={e => setLoginData({...loginData, roleSelection: e.target.value})}>
-                                        <option value="visitor">Ziyaretçi (İzleme)</option>
-                                        <option value="admin">Yönetici (Tam Yetki)</option>
-                                    </select>
-                                </div>
-                                {loginData.roleSelection === 'admin' && (
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-1">Yönetici Şifresi</label>
-                                        <input type="password" placeholder="••••" required className="w-full px-4 py-3 rounded-xl border outline-none focus:ring-2 focus:ring-purple-500 mt-1" 
-                                            value={loginData.password} onChange={e => setLoginData({...loginData, password: e.target.value})} />
-                                    </div>
-                                )}
-                                <button type="submit" className="w-full bg-purple-600 text-white font-bold py-4 rounded-xl hover:bg-purple-700 transition-all uppercase">Aileyi Görüntüle</button>
-                            </form>
-                            {errorMessage && <div className="mx-8 mb-6 p-3 bg-red-50 text-red-600 text-xs rounded-lg text-center">{errorMessage}</div>}
-                        </div>
-                    </div>
-                );
-            }
+            const focusOnMember = (id) => {
+                setSearchTerm(''); setHighlightedId(id);
+                setTimeout(() => {
+                    const el = document.querySelector(`[data-member-id="${id}"]`);
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 100);
+                setTimeout(() => setHighlightedId(null), 3000);
+            };
 
-            // Ana Ekran
+            if (!isAuthenticated) return (
+                <div className="min-h-screen flex items-center justify-center p-4 bg-[#1e1b4b]">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+                        <div className="bg-purple-600 p-10 text-center text-white">
+                            <i data-lucide="tree-deciduous" className="w-16 h-16 mx-auto mb-4"></i>
+                            <h2 className="text-3xl font-bold uppercase">Morkoç Ailesi</h2>
+                            <p className="text-purple-100 text-xs mt-2 uppercase tracking-widest">Soyağacı Portalı</p>
+                        </div>
+                        <form onSubmit={handleLogin} className="p-8 space-y-6">
+                            <select className="w-full p-4 rounded-xl border border-gray-200 outline-none font-bold text-gray-700 bg-gray-50"
+                                value={loginData.roleSelection} onChange={e => setLoginData({...loginData, roleSelection: e.target.value})}>
+                                <option value="visitor">Ziyaretçi (İzleme)</option>
+                                <option value="admin">Yönetici (Tam Yetki)</option>
+                            </select>
+                            {loginData.roleSelection === 'admin' && <input type="password" placeholder="Şifre" required className="w-full p-4 rounded-xl border border-gray-200 outline-none" onChange={e => setLoginData({...loginData, password: e.target.value})} />}
+                            <button type="submit" className="w-full bg-purple-600 text-white font-bold py-4 rounded-xl hover:bg-purple-700 transition-all uppercase">Aileyi Görüntüle</button>
+                        </form>
+                        {errorMessage && <p className="text-center pb-6 text-red-500 font-bold">{errorMessage}</p>}
+                    </div>
+                </div>
+            );
+
             return (
-                <div className="min-h-screen bg-[#f5f3ff] flex flex-col relative overflow-hidden">
-                    <header className="h-16 bg-white border-b flex items-center justify-between px-8 z-40 shadow-sm">
+                <div className="min-h-screen flex flex-col">
+                    <header className="h-16 bg-white border-b flex items-center justify-between px-8 shadow-sm shrink-0">
                         <div className="flex items-center gap-3">
                             <div className="bg-purple-600 p-2 rounded-lg text-white"><i data-lucide="tree-deciduous" className="w-5 h-5"></i></div>
-                            <div className="flex flex-col">
-                                <h2 className="font-bold text-base uppercase leading-none text-gray-800">Morkoç Ailesi</h2>
-                                {userRole === 'visitor' && <span className="text-[9px] text-purple-600 font-extrabold flex items-center gap-1 mt-1"><i data-lucide="eye" className="w-3 h-3"></i> İZLEME MODU</span>}
-                            </div>
+                            <h1 className="font-bold text-gray-800 uppercase">Morkoç Ailesi</h1>
                         </div>
-                        <div className="flex items-center gap-6">
+                        <div className="flex items-center gap-4">
                             <div className="relative">
-                                <div className="relative">
-                                    <i data-lucide="search" className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
-                                    <input type="text" placeholder="İsimle ara..." className="pl-10 pr-4 py-2 bg-gray-100 rounded-full text-sm w-48 focus:w-64 transition-all outline-none" 
-                                        value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                                </div>
+                                <input type="text" placeholder="İsimle ara..." className="pl-10 pr-4 py-2 bg-gray-100 rounded-full text-sm outline-none w-48 focus:w-64 transition-all" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                                <i data-lucide="search" className="w-4 h-4 absolute left-3 top-2.5 text-gray-400"></i>
                                 {searchSuggestions.length > 0 && (
-                                    <div className="absolute top-full right-0 mt-2 w-72 bg-white shadow-2xl rounded-2xl overflow-hidden z-[100] border">
-                                        {searchSuggestions.map(m => (
-                                            <button key={m.id} onClick={() => focusOnMember(m.id)} className="w-full flex items-center gap-3 p-3 hover:bg-purple-50 border-b last:border-0 text-left">
-                                                <i data-lucide="user" className={`w-4 h-4 ${m.gender === 'male' ? 'text-indigo-500' : 'text-rose-500'}`}></i>
-                                                <span className="flex-1 font-bold text-sm text-gray-800 truncate">{m.name}</span>
-                                            </button>
-                                        ))}
+                                    <div className="absolute top-12 right-0 w-64 bg-white border rounded-xl shadow-xl z-50 overflow-hidden">
+                                        {searchSuggestions.map(m => <button key={m.id} onClick={() => focusOnMember(m.id)} className="w-full p-3 text-left hover:bg-purple-50 border-b last:border-0 font-bold text-sm text-gray-700">{m.name}</button>)}
                                     </div>
                                 )}
                             </div>
-                            <button onClick={() => setIsAuthenticated(false)} className="text-gray-400 hover:text-red-500"><i data-lucide="log-out" className="w-5 h-5"></i></button>
+                            <button onClick={() => setIsAuthenticated(false)} className="p-2 hover:bg-red-50 text-gray-400 hover:text-red-500 rounded-lg"><i data-lucide="log-out" className="w-5 h-5"></i></button>
                         </div>
                     </header>
 
-                    <div className="flex-1 overflow-auto p-12 bg-white m-4 rounded-3xl shadow-inner border scroll-smooth">
-                        {familyMembers.length === 0 && !isLoading ? (
-                            <div className="flex flex-col items-center justify-center h-full">
-                                <div className="bg-purple-50 p-12 rounded-[3rem] border border-purple-100 text-center max-w-lg">
-                                    <i data-lucide="tree-deciduous" className="w-16 h-16 mx-auto mb-6 text-purple-300"></i>
-                                    <p className="text-2xl font-bold uppercase text-gray-800">Soyağacı Başlatılmadı</p>
-                                    {userRole === 'admin' ? (
-                                        <button onClick={() => openModal('add-root')} className="mt-6 flex items-center gap-2 mx-auto bg-purple-600 text-white px-8 py-4 rounded-2xl font-bold uppercase hover:bg-purple-700">
-                                            <i data-lucide="user-plus" className="w-5 h-5"></i> İlk Atayı Ekle
-                                        </button>
-                                    ) : (
-                                        <p className="mt-4 text-sm text-gray-500">Yönetici tarafından henüz kimse eklenmemiş.</p>
-                                    )}
-                                </div>
+                    <main className="flex-1 overflow-auto p-12 bg-white m-4 rounded-[2.5rem] shadow-inner border border-purple-100">
+                        {familyMembers.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-full text-center">
+                                <i data-lucide="tree-deciduous" className="w-16 h-16 text-purple-200 mb-4"></i>
+                                <h3 className="text-xl font-bold text-gray-400 uppercase">Soyağacı Boş</h3>
+                                {userRole === 'admin' && <button onClick={() => openModal('add-root')} className="mt-4 bg-purple-600 text-white px-6 py-3 rounded-xl font-bold uppercase">İlk Atayı Ekle</button>}
                             </div>
                         ) : (
-                            <div className="flex flex-col items-center min-w-max space-y-24 py-10">
+                            <div className="flex flex-col items-center gap-24">
                                 {roots.map(root => <FamilyNode key={root.id} memberId={root.id} />)}
                             </div>
                         )}
-                    </div>
+                    </main>
 
-                    {/* Modal Alanı */}
                     {modalMode && (
                         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm">
                             <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden">
                                 <div className="p-6 border-b flex justify-between items-center bg-gray-50">
-                                    <h3 className="font-bold uppercase text-gray-800">{modalMode === 'edit' ? 'Kaydı Güncelle' : modalMode === 'add-spouse' ? 'Eş Ekle' : modalMode === 'add-root' ? 'Ata Ekle' : 'Çocuk Ekle'}</h3>
+                                    <h3 className="font-bold uppercase text-gray-800">{modalMode === 'edit' ? 'Düzenle' : 'Yeni Kayıt'}</h3>
                                     <button onClick={closeModal} className="text-gray-400 hover:text-gray-600"><i data-lucide="x" className="w-5 h-5"></i></button>
                                 </div>
                                 <form onSubmit={saveMember} className="p-6 space-y-4">
-                                    <div className="flex flex-col items-center mb-4">
-                                        <div onClick={() => fileInputRef.current.click()} className="w-20 h-20 rounded-full bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer overflow-hidden relative group">
-                                            {formData.photo ? <img src={formData.photo} className="w-full h-full object-cover" /> : <i data-lucide="camera" className="w-6 h-6 text-gray-400"></i>}
-                                        </div>
-                                        <input type="file" ref={fileInputRef} onChange={handlePhotoChange} accept="image/*" className="hidden" />
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-500 uppercase">Adı Soyadı</label>
-                                        <input required className="w-full p-3 border rounded-xl mt-1 focus:ring-2 focus:ring-purple-500 outline-none font-bold" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-                                    </div>
+                                    <input type="text" placeholder="Adı Soyadı" required className="w-full p-3 border rounded-xl" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase">Hayatta mı?</label>
-                                            <select className="w-full p-3 border rounded-xl mt-1 outline-none" value={formData.is_alive} onChange={e => setFormData({...formData, is_alive: e.target.value})}>
-                                                <option value="Evet">Evet</option><option value="Hayır">Hayır</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase">Cinsiyet</label>
-                                            <select className="w-full p-3 border rounded-xl mt-1 outline-none" value={formData.gender} onChange={e => setFormData({...formData, gender: e.target.value})}>
-                                                <option value="male">Erkek</option><option value="female">Kadın</option>
-                                            </select>
-                                        </div>
+                                        <select className="p-3 border rounded-xl" value={formData.is_alive} onChange={e => setFormData({...formData, is_alive: e.target.value})}><option value="Evet">Hayatta</option><option value="Hayır">Vefat</option></select>
+                                        <select className="p-3 border rounded-xl" value={formData.gender} onChange={e => setFormData({...formData, gender: e.target.value})}><option value="male">Erkek</option><option value="female">Kadın</option></select>
                                     </div>
-                                    {(formData.gender === 'female' && (modalMode === 'add-spouse' || (modalMode === 'edit' && activeMember?.spouse_id))) && (
-                                        <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase">Kızlık Soyadı / Ailesi</label>
-                                            <input className="w-full p-3 border rounded-xl mt-1 outline-none" value={formData.parents_info} onChange={e => setFormData({...formData, parents_info: e.target.value})} />
-                                        </div>
-                                    )}
-                                    <button type="submit" className="w-full bg-purple-600 text-white font-bold p-4 rounded-xl mt-4 uppercase hover:bg-purple-700">Kaydet</button>
+                                    <input type="text" placeholder="Kızlık Soyadı / Ailesi" className="w-full p-3 border rounded-xl" value={formData.parents_info} onChange={e => setFormData({...formData, parents_info: e.target.value})} />
+                                    <button type="submit" disabled={isSaving} className="w-full bg-purple-600 text-white font-bold p-4 rounded-xl uppercase disabled:bg-gray-400">{isSaving ? "Kaydediliyor..." : "Kaydet"}</button>
                                 </form>
                             </div>
                         </div>
@@ -533,7 +300,6 @@
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
-        // Sayfa yüklendiğinde iconları render et
         setTimeout(() => lucide.createIcons(), 500);
     </script>
 </body>
