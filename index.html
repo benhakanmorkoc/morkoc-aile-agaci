@@ -91,18 +91,26 @@
             }, []);
 
             // 2) Verileri çek
-            const fetchMembers = async () => {
-                if (!supabaseClient) return;
-                setIsLoading(true);
-                const { data, error } = await supabaseClient
-                    .from('family_members')
-                    .select('*')
-                    .order('order', { ascending: true });
+      const fetchMembers = async () => {
+    if (!supabaseClient) return;
 
-                if (!error) setFamilyMembers(data || []);
-                else console.error(error);
-                setIsLoading(false);
-            };
+    setIsLoading(true);
+
+    const { data, error } = await supabaseClient
+        .from('family_members')
+        .select('*')
+        .order('order', { ascending: true });
+
+    if (error) {
+        console.error("Veri çekme hatası:", error);
+        alert("Veriler çekilemedi: " + error.message);
+        setFamilyMembers([]);
+    } else {
+        setFamilyMembers(data || []);
+    }
+
+    setIsLoading(false);
+};
 
             useEffect(() => {
                 if (!supabaseClient) return;
@@ -150,52 +158,66 @@
             };
 
             // 4) Kayıt & güncelleme
-            const saveMember = async (e) => {
-                e.preventDefault();
-                if (isSaving || !supabaseClient) return;
+           const saveMember = async (e) => {
+    e.preventDefault();
+    if (isSaving || !supabaseClient) return;
 
-                setIsSaving(true);
-                try {
-                    if (modalMode === 'edit') {
-                        await supabaseClient
-                            .from('family_members')
-                            .update(formData)
-                            .eq('id', activeMember.id);
+    setIsSaving(true);
 
-                    } else if (modalMode === 'add-child') {
-                        const order = familyMembers.filter(m => m.parent_id === activeMember.id).length;
-                        await supabaseClient
-                            .from('family_members')
-                            .insert([{ ...formData, parent_id: activeMember.id, order }]);
+    try {
+        let result;
 
-                    } else if (modalMode === 'add-spouse') {
-                        const { data: newSpouse, error } = await supabaseClient
-                            .from('family_members')
-                            .insert([{ ...formData, spouse_id: activeMember.id }])
-                            .select()
-                            .single();
+        if (modalMode === 'edit') {
+            result = await supabaseClient
+                .from('family_members')
+                .update(formData)
+                .eq('id', activeMember.id)
+                .select();
 
-                        if (error) throw error;
+        } else if (modalMode === 'add-child') {
+            const order = familyMembers.filter(m => m.parent_id === activeMember.id).length;
 
-                        await supabaseClient
-                            .from('family_members')
-                            .update({ spouse_id: newSpouse.id })
-                            .eq('id', activeMember.id);
+            result = await supabaseClient
+                .from('family_members')
+                .insert([{ ...formData, parent_id: activeMember.id, order }])
+                .select();
 
-                    } else if (modalMode === 'add-root') {
-                        await supabaseClient
-                            .from('family_members')
-                            .insert([{ ...formData, order: familyMembers.length }]);
-                    }
+        } else if (modalMode === 'add-spouse') {
+            const { data: newSpouse, error } = await supabaseClient
+                .from('family_members')
+                .insert([{ ...formData, spouse_id: activeMember.id }])
+                .select()
+                .single();
 
-                    closeModal();
-                    fetchMembers();
-                } catch (err) {
-                    alert("Kayıt sırasında hata oluştu: " + err.message);
-                } finally {
-                    setIsSaving(false);
-                }
-            };
+            if (error) throw error;
+
+            result = await supabaseClient
+                .from('family_members')
+                .update({ spouse_id: newSpouse.id })
+                .eq('id', activeMember.id)
+                .select();
+
+        } else if (modalMode === 'add-root') {
+            result = await supabaseClient
+                .from('family_members')
+                .insert([{ ...formData, parent_id: null, spouse_id: null, order: familyMembers.length }])
+                .select();
+        }
+
+        if (result?.error) {
+            throw result.error;
+        }
+
+        closeModal();
+        await fetchMembers();
+
+    } catch (err) {
+        alert("Kayıt sırasında hata oluştu: " + err.message);
+        console.error("Supabase kayıt hatası:", err);
+    } finally {
+        setIsSaving(false);
+    }
+};
 
             const deleteMember = async (id) => {
                 if (userRole !== 'admin') return;
