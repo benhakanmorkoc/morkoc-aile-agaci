@@ -195,11 +195,16 @@
                             .select();
 
                     } else if (modalMode === 'add-child') {
-                        const order = familyMembers.filter(m => m.parent_id === activeMember.id).length;
+                        // Çocuk eklerken: hem aktif kişinin hem de eşinin çocuklarını birlikte say
+                        const spouseId = activeMember.spouse_id || null;
+                        const siblingCount = familyMembers.filter(m =>
+                            m.parent_id === activeMember.id ||
+                            (spouseId && m.parent_id === spouseId)
+                        ).length;
 
                         result = await supabaseClient
                             .from('family_members')
-                            .insert([{ ...formData, parent_id: activeMember.id, order }])
+                            .insert([{ ...formData, parent_id: activeMember.id, order: siblingCount }])
                             .select();
 
                     } else if (modalMode === 'add-spouse') {
@@ -310,12 +315,19 @@
                 }
 
                 try {
-                    // 1) Aynı ebeveyne sahip kardeşler -> sıralamayı değiştir
-                    if (
-                        draggedM.parent_id &&
-                        targetM.parent_id &&
-                        draggedM.parent_id === targetM.parent_id
-                    ) {
+                    // Yardımcı: iki kişinin görsel olarak kardeş olup olmadığını döner.
+                    // (aynı parent_id veya parent_id'leri birbirinin eşi olanlar da kardeştir)
+                    const areSiblings = (a, b) => {
+                        if (!a.parent_id || !b.parent_id) return false;
+                        if (a.parent_id === b.parent_id) return true;
+                        const pa = familyMembers.find(m => m.id === a.parent_id);
+                        const pb = familyMembers.find(m => m.id === b.parent_id);
+                        if (!pa || !pb) return false;
+                        return pa.spouse_id === pb.id || pb.spouse_id === pa.id;
+                    };
+
+                    // 1) Kardeşler -> sıralamayı değiştir
+                    if (areSiblings(draggedM, targetM)) {
                         await supabaseClient.from('family_members').update({ order: targetM.order }).eq('id', draggedM.id);
                         await supabaseClient.from('family_members').update({ order: draggedM.order }).eq('id', targetM.id);
                     }
