@@ -69,11 +69,50 @@
             transform-origin: 0 0;
             will-change: transform;
         }
+
+        /* Zoom kontrolleri her zaman ekran sağ-altta */
+        .zoom-controls {
+            position: fixed;
+            right: 24px;
+            bottom: 24px;
+            z-index: 90;
+        }
         .zoom-controls button {
             transition: all 0.15s ease;
         }
         .zoom-controls button:hover {
             transform: translateY(-1px);
+        }
+
+        /* Eş çifti çerçevesi */
+        .couple-frame {
+            position: relative;
+            padding: 10px 14px;
+            border-radius: 22px;
+            border: 1.5px solid #d8b4fe;
+            background: linear-gradient(180deg, rgba(243, 232, 255, 0.55), rgba(255, 255, 255, 0.4));
+            box-shadow: 0 4px 12px rgba(168, 85, 247, 0.08);
+        }
+
+        /* Bağlantı çizgileri (eş + çocuk) */
+        .link-line {
+            background-color: #a855f7;
+        }
+        .link-vertical {
+            width: 3px;
+            background-color: #a855f7;
+            border-radius: 2px;
+        }
+        .link-horizontal {
+            height: 3px;
+            background-color: #a855f7;
+            border-radius: 2px;
+        }
+        .link-spouse {
+            height: 3px;
+            background-color: #a855f7;
+            border-radius: 2px;
+            position: relative;
         }
     </style>
 </head>
@@ -605,42 +644,61 @@
                     .filter(m => m.parent_id === member.id || (spouse && m.parent_id === spouse.id))
                     .sort((a, b) => (a.order || 0) - (b.order || 0));
 
+                const coupleInner = (
+                    <div className="flex items-center gap-2">
+                        <MemberCard
+                            member={member}
+                            role={userRole}
+                            onEdit={() => openModal('edit', member)}
+                            onAddChild={() => openModal('add-child', member)}
+                            onAddSpouse={() => openModal('add-spouse', member)}
+                        />
+                        {spouse && (
+                            <React.Fragment>
+                                <div className="w-10 link-spouse flex items-center justify-center">
+                                    <span className="absolute inset-x-0 -top-2 flex justify-center">
+                                        <span className="bg-white rounded-full p-0.5 border border-purple-200 shadow-sm">
+                                            <Icon name="heart" className="w-3 h-3 text-purple-500 fill-current" />
+                                        </span>
+                                    </span>
+                                </div>
+                                <MemberCard
+                                    member={spouse}
+                                    role={userRole}
+                                    onEdit={() => openModal('edit', spouse)}
+                                    onAddChild={() => openModal('add-child', spouse)}
+                                    onAddSpouse={() => openModal('add-spouse', spouse)}
+                                />
+                            </React.Fragment>
+                        )}
+                    </div>
+                );
+
                 return (
                     <div className="flex flex-col items-center">
-                        <div className="flex items-center gap-2">
-                            <MemberCard
-                                member={member}
-                                role={userRole}
-                                onEdit={() => openModal('edit', member)}
-                                onAddChild={() => openModal('add-child', member)}
-                                onAddSpouse={() => openModal('add-spouse', member)}
-                            />
-                            {spouse && (
-                                <React.Fragment>
-                                    <div className="w-8 h-px bg-purple-300 relative flex justify-center">
-                                        <Icon name="heart" className="w-3 h-3 text-purple-400 absolute -top-1.5 fill-current bg-[#f5f3ff] px-0.5" />
-                                    </div>
-                                    <MemberCard
-                                        member={spouse}
-                                        role={userRole}
-                                        onEdit={() => openModal('edit', spouse)}
-                                        onAddChild={() => openModal('add-child', spouse)}
-                                        onAddSpouse={() => openModal('add-spouse', spouse)}
-                                    />
-                                </React.Fragment>
-                            )}
-                        </div>
+                        {spouse ? (
+                            <div className="couple-frame">{coupleInner}</div>
+                        ) : (
+                            coupleInner
+                        )}
 
                         {children.length > 0 && (
-                            <div className="flex flex-col items-center mt-10 relative">
-                                <div className="w-px h-8 bg-gray-300"></div>
-                                <div className="flex gap-12 pt-4 relative">
+                            <div className="flex flex-col items-center relative">
+                                {/* Çiftten aşağı inen ana çizgi */}
+                                <div className="link-vertical h-8"></div>
+
+                                <div className="flex gap-12 relative">
+                                    {/* Çocuklar arası yatay bağlayıcı */}
                                     {children.length > 1 && (
-                                        <div className="absolute top-0 left-1/2 -translate-x-1/2 h-px bg-gray-300" style={{ width: 'calc(100% - 3rem)' }}></div>
+                                        <div
+                                            className="link-horizontal absolute top-0 left-0 right-0"
+                                            style={{ marginLeft: '5.5rem', marginRight: '5.5rem' }}
+                                        ></div>
                                     )}
                                     {children.map(child => (
-                                        <div key={child.id} className="relative pt-4">
-                                            <div className="absolute top-0 left-1/2 w-px h-4 bg-gray-300"></div>
+                                        <div key={child.id} className="relative pt-8 flex flex-col items-center">
+                                            {/* Yatay çizgiden çocuğa inen kısa dikey çizgi */}
+                                            <div className="link-vertical absolute top-0 left-1/2 -translate-x-1/2 h-8"></div>
                                             <FamilyNode memberId={child.id} processed={processed} />
                                         </div>
                                     ))}
