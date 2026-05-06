@@ -26,6 +26,27 @@
             opacity: 1 !important;
             visibility: visible !important;
         }
+
+        /* Sürükleme görseli */
+        .dragging-card {
+            opacity: 0.4;
+            transform: scale(0.96);
+        }
+        .drop-target {
+            outline: 3px dashed #a855f7;
+            outline-offset: 4px;
+        }
+
+        /* Fotoğraf hover yakınlaştırma efekti */
+        .photo-zoom-wrap {
+            transition: transform 0.3s ease, box-shadow 0.3s ease, z-index 0s linear 0.3s;
+        }
+        .photo-zoom-wrap:hover {
+            transform: scale(2.4);
+            z-index: 60;
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+            transition: transform 0.3s ease, box-shadow 0.3s ease, z-index 0s linear 0s;
+        }
     </style>
 </head>
 <body>
@@ -36,7 +57,7 @@
 
         // =========================================================
         // AŞAĞIDAKİ 2 SATIRI KENDİ SUPABASE BİLGİLERİNİZLE DEĞİŞTİRİN
-       const SUPABASE_URL = "https://cqzzgiraaglehokkcxil.supabase.co";
+        const SUPABASE_URL = "https://cqzzgiraaglehokkcxil.supabase.co";
         const SUPABASE_ANON_KEY = "sb_publishable_kaGxoYXoxvjQCP-1plOfkQ_o-EUIBxe";
         // =========================================================
 
@@ -74,6 +95,7 @@
             const [isLoading, setIsLoading] = useState(true);
             const [isSaving, setIsSaving] = useState(false);
             const [draggedId, setDraggedId] = useState(null);
+            const [dragOverId, setDragOverId] = useState(null);
 
             const fileInputRef = useRef(null);
 
@@ -91,26 +113,26 @@
             }, []);
 
             // 2) Verileri çek
-      const fetchMembers = async () => {
-    if (!supabaseClient) return;
+            const fetchMembers = async () => {
+                if (!supabaseClient) return;
 
-    setIsLoading(true);
+                setIsLoading(true);
 
-    const { data, error } = await supabaseClient
-        .from('family_members')
-        .select('*')
-        .order('order', { ascending: true });
+                const { data, error } = await supabaseClient
+                    .from('family_members')
+                    .select('*')
+                    .order('order', { ascending: true });
 
-    if (error) {
-        console.error("Veri çekme hatası:", error);
-        alert("Veriler çekilemedi: " + error.message);
-        setFamilyMembers([]);
-    } else {
-        setFamilyMembers(data || []);
-    }
+                if (error) {
+                    console.error("Veri çekme hatası:", error);
+                    alert("Veriler çekilemedi: " + error.message);
+                    setFamilyMembers([]);
+                } else {
+                    setFamilyMembers(data || []);
+                }
 
-    setIsLoading(false);
-};
+                setIsLoading(false);
+            };
 
             useEffect(() => {
                 if (!supabaseClient) return;
@@ -141,7 +163,6 @@
                 }
             };
 
-            // Arama önerileri (DÜZELTME)
             const searchSuggestions = useMemo(() => {
                 const q = searchTerm.trim().toLowerCase();
                 if (!q) return [];
@@ -150,7 +171,6 @@
                     .slice(0, 8);
             }, [searchTerm, familyMembers]);
 
-            // Modal kapatma (DÜZELTME)
             const closeModal = () => {
                 setModalMode(null);
                 setActiveMember(null);
@@ -158,66 +178,66 @@
             };
 
             // 4) Kayıt & güncelleme
-           const saveMember = async (e) => {
-    e.preventDefault();
-    if (isSaving || !supabaseClient) return;
+            const saveMember = async (e) => {
+                e.preventDefault();
+                if (isSaving || !supabaseClient) return;
 
-    setIsSaving(true);
+                setIsSaving(true);
 
-    try {
-        let result;
+                try {
+                    let result;
 
-        if (modalMode === 'edit') {
-            result = await supabaseClient
-                .from('family_members')
-                .update(formData)
-                .eq('id', activeMember.id)
-                .select();
+                    if (modalMode === 'edit') {
+                        result = await supabaseClient
+                            .from('family_members')
+                            .update(formData)
+                            .eq('id', activeMember.id)
+                            .select();
 
-        } else if (modalMode === 'add-child') {
-            const order = familyMembers.filter(m => m.parent_id === activeMember.id).length;
+                    } else if (modalMode === 'add-child') {
+                        const order = familyMembers.filter(m => m.parent_id === activeMember.id).length;
 
-            result = await supabaseClient
-                .from('family_members')
-                .insert([{ ...formData, parent_id: activeMember.id, order }])
-                .select();
+                        result = await supabaseClient
+                            .from('family_members')
+                            .insert([{ ...formData, parent_id: activeMember.id, order }])
+                            .select();
 
-        } else if (modalMode === 'add-spouse') {
-            const { data: newSpouse, error } = await supabaseClient
-                .from('family_members')
-                .insert([{ ...formData, spouse_id: activeMember.id }])
-                .select()
-                .single();
+                    } else if (modalMode === 'add-spouse') {
+                        const { data: newSpouse, error } = await supabaseClient
+                            .from('family_members')
+                            .insert([{ ...formData, spouse_id: activeMember.id }])
+                            .select()
+                            .single();
 
-            if (error) throw error;
+                        if (error) throw error;
 
-            result = await supabaseClient
-                .from('family_members')
-                .update({ spouse_id: newSpouse.id })
-                .eq('id', activeMember.id)
-                .select();
+                        result = await supabaseClient
+                            .from('family_members')
+                            .update({ spouse_id: newSpouse.id })
+                            .eq('id', activeMember.id)
+                            .select();
 
-        } else if (modalMode === 'add-root') {
-            result = await supabaseClient
-                .from('family_members')
-                .insert([{ ...formData, parent_id: null, spouse_id: null, order: familyMembers.length }])
-                .select();
-        }
+                    } else if (modalMode === 'add-root') {
+                        result = await supabaseClient
+                            .from('family_members')
+                            .insert([{ ...formData, parent_id: null, spouse_id: null, order: familyMembers.length }])
+                            .select();
+                    }
 
-        if (result?.error) {
-            throw result.error;
-        }
+                    if (result?.error) {
+                        throw result.error;
+                    }
 
-        closeModal();
-        await fetchMembers();
+                    closeModal();
+                    await fetchMembers();
 
-    } catch (err) {
-        alert("Kayıt sırasında hata oluştu: " + err.message);
-        console.error("Supabase kayıt hatası:", err);
-    } finally {
-        setIsSaving(false);
-    }
-};
+                } catch (err) {
+                    alert("Kayıt sırasında hata oluştu: " + err.message);
+                    console.error("Supabase kayıt hatası:", err);
+                } finally {
+                    setIsSaving(false);
+                }
+            };
 
             const deleteMember = async (id) => {
                 if (userRole !== 'admin') return;
@@ -250,12 +270,37 @@
             };
 
             // 6) Sürükle bırak
-            const handleDragStart = (id) => {
-                if (userRole === 'admin') setDraggedId(id);
+            const handleDragStart = (e, id) => {
+                if (userRole !== 'admin') return;
+                setDraggedId(id);
+                if (e.dataTransfer) {
+                    e.dataTransfer.effectAllowed = "move";
+                    try { e.dataTransfer.setData("text/plain", id); } catch (_) {}
+                }
+            };
+
+            const handleDragEnd = () => {
+                setDraggedId(null);
+                setDragOverId(null);
+            };
+
+            const handleDragOver = (e, id) => {
+                if (userRole !== 'admin' || !draggedId || draggedId === id) return;
+                e.preventDefault();
+                if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+                if (dragOverId !== id) setDragOverId(id);
+            };
+
+            const handleDragLeave = (id) => {
+                if (dragOverId === id) setDragOverId(null);
             };
 
             const handleDrop = async (targetId) => {
-                if (!draggedId || draggedId === targetId || userRole !== 'admin') return;
+                setDragOverId(null);
+                if (!draggedId || draggedId === targetId || userRole !== 'admin') {
+                    setDraggedId(null);
+                    return;
+                }
 
                 const draggedM = familyMembers.find(m => m.id === draggedId);
                 const targetM = familyMembers.find(m => m.id === targetId);
@@ -264,23 +309,39 @@
                     return;
                 }
 
-                // Kardeşler arası
-                if (draggedM.parent_id === targetM.parent_id) {
-                    await supabaseClient.from('family_members').update({ order: targetM.order }).eq('id', draggedId);
-                    await supabaseClient.from('family_members').update({ order: draggedM.order }).eq('id', targetId);
-                }
-                // Eşler arası
-                else if (draggedM.spouse_id === targetId || targetM.spouse_id === draggedId) {
-                    const anchor = draggedM.parent_id ? draggedM : targetM;
-                    const spouse = anchor.id === draggedId ? targetM : draggedM;
-
-                    await supabaseClient.from('family_members').update({ parent_id: anchor.parent_id, order: anchor.order }).eq('id', spouse.id);
-                    await supabaseClient.from('family_members').update({ parent_id: null, order: 0 }).eq('id', anchor.id);
-
-                    const children = familyMembers.filter(m => m.parent_id === anchor.id);
-                    for (const child of children) {
-                        await supabaseClient.from('family_members').update({ parent_id: spouse.id }).eq('id', child.id);
+                try {
+                    // 1) Aynı ebeveyne sahip kardeşler -> sıralamayı değiştir
+                    if (
+                        draggedM.parent_id &&
+                        targetM.parent_id &&
+                        draggedM.parent_id === targetM.parent_id
+                    ) {
+                        await supabaseClient.from('family_members').update({ order: targetM.order }).eq('id', draggedM.id);
+                        await supabaseClient.from('family_members').update({ order: draggedM.order }).eq('id', targetM.id);
                     }
+                    // 2) Eşler -> sağ/sol yer değişir (mevcut davranış korundu)
+                    else if (draggedM.spouse_id === targetM.id || targetM.spouse_id === draggedM.id) {
+                        const anchor = draggedM.parent_id ? draggedM : targetM;
+                        const spouse = anchor.id === draggedM.id ? targetM : draggedM;
+
+                        await supabaseClient.from('family_members').update({ parent_id: anchor.parent_id, order: anchor.order }).eq('id', spouse.id);
+                        await supabaseClient.from('family_members').update({ parent_id: null, order: 0 }).eq('id', anchor.id);
+
+                        const children = familyMembers.filter(m => m.parent_id === anchor.id);
+                        for (const child of children) {
+                            await supabaseClient.from('family_members').update({ parent_id: spouse.id }).eq('id', child.id);
+                        }
+                    }
+                    // 3) Aynı seviyedeki kök kişiler -> kökler arası sıralama
+                    else if (!draggedM.parent_id && !targetM.parent_id) {
+                        await supabaseClient.from('family_members').update({ order: targetM.order }).eq('id', draggedM.id);
+                        await supabaseClient.from('family_members').update({ order: draggedM.order }).eq('id', targetM.id);
+                    } else {
+                        alert("Bu iki kart birbirinin yerine geçemez. Sadece kardeşler, eşler veya aynı seviyedeki kökler yer değiştirebilir.");
+                    }
+                } catch (err) {
+                    console.error("Sürükle-bırak hatası:", err);
+                    alert("Yer değiştirme sırasında hata: " + err.message);
                 }
 
                 setDraggedId(null);
@@ -337,35 +398,56 @@
             const MemberCard = ({ member, role, onEdit, onAddChild, onAddSpouse }) => {
                 const isAdmin = role === 'admin';
                 const isFemale = member.gender === 'female';
+                const isDragging = draggedId === member.id;
+                const isDropTarget = dragOverId === member.id;
 
                 return (
                     <div
                         data-member-id={member.id}
                         draggable={isAdmin}
-                        onDragStart={() => handleDragStart(member.id)}
-                        onDragOver={e => e.preventDefault()}
+                        onDragStart={(e) => handleDragStart(e, member.id)}
+                        onDragEnd={handleDragEnd}
+                        onDragOver={(e) => handleDragOver(e, member.id)}
+                        onDragLeave={() => handleDragLeave(member.id)}
                         onDrop={() => handleDrop(member.id)}
                         className={`group relative p-3 rounded-xl border w-44 flex-shrink-0 shadow-sm transition-all
                             ${isFemale ? 'bg-rose-50 border-rose-200' : 'bg-indigo-50 border-indigo-200'}
                             ${highlightedId === member.id ? 'ring-4 ring-purple-500 scale-105 z-40' : 'hover:shadow-md'}
-                            ${draggedId === member.id ? 'opacity-50' : ''}`}
+                            ${isDragging ? 'dragging-card' : ''}
+                            ${isDropTarget ? 'drop-target' : ''}`}
                     >
                         {isAdmin && (
-                            <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white px-2 rounded-full border shadow-sm opacity-0 group-hover:opacity-100 cursor-grab">
+                            <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white px-2 rounded-full border shadow-sm opacity-0 group-hover:opacity-100 cursor-grab" title="Sürükleyerek yerini değiştir">
                                 <Icon name="drag" className="w-3 h-3 text-gray-400" />
                             </div>
                         )}
 
                         <div className="flex justify-between items-start mb-2">
-                            <div className={`p-1.5 rounded-lg text-white ${isFemale ? 'bg-rose-500' : 'bg-indigo-500'}`}>
-                                <Icon name="user" className="w-4 h-4" />
-                            </div>
+                            {/* Profil resmi veya ikon */}
+                            {member.photo ? (
+                                <div
+                                    className={`photo-zoom-wrap relative w-12 h-12 rounded-lg overflow-hidden border-2 ${isFemale ? 'border-rose-400' : 'border-indigo-400'} bg-white`}
+                                    title={member.name}
+                                >
+                                    <img
+                                        src={member.photo}
+                                        alt={member.name}
+                                        draggable={false}
+                                        className="w-full h-full object-cover"
+                                    />
+                                </div>
+                            ) : (
+                                <div className={`p-1.5 rounded-lg text-white ${isFemale ? 'bg-rose-500' : 'bg-indigo-500'}`}>
+                                    <Icon name="user" className="w-4 h-4" />
+                                </div>
+                            )}
+
                             {isAdmin && (
                                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={onEdit} className="p-1.5 bg-white rounded-lg border hover:text-purple-600 shadow-sm">
+                                    <button onClick={onEdit} className="p-1.5 bg-white rounded-lg border hover:text-purple-600 shadow-sm" title="Düzenle">
                                         <Icon name="edit" className="w-3 h-3" />
                                     </button>
-                                    <button onClick={() => deleteMember(member.id)} className="p-1.5 bg-white rounded-lg border hover:text-red-600 shadow-sm">
+                                    <button onClick={() => deleteMember(member.id)} className="p-1.5 bg-white rounded-lg border hover:text-red-600 shadow-sm" title="Sil">
                                         <Icon name="trash" className="w-3 h-3" />
                                     </button>
                                 </div>
