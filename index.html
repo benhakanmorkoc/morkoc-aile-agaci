@@ -47,6 +47,34 @@
             box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
             transition: transform 0.3s ease, box-shadow 0.3s ease, z-index 0s linear 0s;
         }
+
+        /* Pan & Zoom kutusu */
+        .pan-zoom-viewport {
+            position: relative;
+            overflow: hidden;
+            cursor: grab;
+            touch-action: none;
+            user-select: none;
+            background-image:
+                radial-gradient(circle, rgba(168, 85, 247, 0.08) 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+        .pan-zoom-viewport.is-panning {
+            cursor: grabbing;
+        }
+        .pan-zoom-canvas {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform-origin: 0 0;
+            will-change: transform;
+        }
+        .zoom-controls button {
+            transition: all 0.15s ease;
+        }
+        .zoom-controls button:hover {
+            transform: translateY(-1px);
+        }
     </style>
 </head>
 <body>
@@ -97,7 +125,14 @@
             const [draggedId, setDraggedId] = useState(null);
             const [dragOverId, setDragOverId] = useState(null);
 
+            // Pan & Zoom state
+            const [zoom, setZoom] = useState(1);
+            const [pan, setPan] = useState({ x: 0, y: 0 });
+            const [isPanning, setIsPanning] = useState(false);
+            const panStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+
             const fileInputRef = useRef(null);
+            const viewportRef = useRef(null);
 
             // 1) Supabase Kurulumu
             useEffect(() => {
@@ -395,13 +430,75 @@
                 }
             };
 
+            // Pan & Zoom işlemleri
+            const ZOOM_MIN = 0.3;
+            const ZOOM_MAX = 2.5;
+            const ZOOM_STEP = 0.15;
+
+            const clampZoom = (z) => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+
+            const zoomIn  = () => setZoom(z => clampZoom(z + ZOOM_STEP));
+            const zoomOut = () => setZoom(z => clampZoom(z - ZOOM_STEP));
+            const resetView = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
+
+            const handleViewportWheel = (e) => {
+                e.preventDefault();
+                const direction = e.deltaY > 0 ? -1 : 1;
+                const factor = 1 + direction * 0.1;
+
+                const rect = viewportRef.current?.getBoundingClientRect();
+                if (!rect) return;
+
+                const cx = rect.width / 2;
+                const cy = rect.height / 2;
+                const mouseX = e.clientX - rect.left - cx;
+                const mouseY = e.clientY - rect.top  - cy;
+
+                setZoom(prevZoom => {
+                    const nextZoom = clampZoom(prevZoom * factor);
+                    if (nextZoom === prevZoom) return prevZoom;
+
+                    const realFactor = nextZoom / prevZoom;
+                    setPan(prev => ({
+                        x: mouseX - (mouseX - prev.x) * realFactor,
+                        y: mouseY - (mouseY - prev.y) * realFactor
+                    }));
+                    return nextZoom;
+                });
+            };
+
+            const handleViewportMouseDown = (e) => {
+                if (e.button !== 0) return;
+                if (e.target.closest('[data-member-id]')) return;
+                if (e.target.closest('.zoom-controls')) return;
+
+                setIsPanning(true);
+                panStartRef.current = {
+                    x: e.clientX,
+                    y: e.clientY,
+                    panX: pan.x,
+                    panY: pan.y
+                };
+            };
+
+            const handleViewportMouseMove = (e) => {
+                if (!isPanning) return;
+                setPan({
+                    x: panStartRef.current.panX + (e.clientX - panStartRef.current.x),
+                    y: panStartRef.current.panY + (e.clientY - panStartRef.current.y)
+                });
+            };
+
+            const stopPanning = () => setIsPanning(false);
+
             const focusOnMember = (id) => {
                 setSearchTerm('');
                 setHighlightedId(id);
+                resetView();
 
                 setTimeout(() => {
                     const el = document.querySelector(`[data-member-id="${id}"]`);
-                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
                 }, 100);
 
                 setTimeout(() => setHighlightedId(null), 3000);
@@ -644,9 +741,17 @@
                         </div>
                     </header>
 
-                    <main className="flex-1 overflow-auto p-12 bg-white m-4 rounded-[2.5rem] shadow-inner border border-purple-100">
+                    <main
+                        ref={viewportRef}
+                        onWheel={handleViewportWheel}
+                        onMouseDown={handleViewportMouseDown}
+                        onMouseMove={handleViewportMouseMove}
+                        onMouseUp={stopPanning}
+                        onMouseLeave={stopPanning}
+                        className={`pan-zoom-viewport flex-1 bg-white m-4 rounded-[2.5rem] shadow-inner border border-purple-100 ${isPanning ? 'is-panning' : ''}`}
+                    >
                         {familyMembers.length === 0 && !isLoading ? (
-                            <div className="flex flex-col items-center justify-center h-full">
+                            <div className="absolute inset-0 flex flex-col items-center justify-center">
                                 <div className="bg-purple-50 p-12 rounded-[3rem] border border-purple-100 text-center max-w-sm mx-auto">
                                     <Icon name="tree" className="w-16 h-16 text-purple-300 mx-auto mb-6" />
                                     <h3 className="font-bold text-gray-800 uppercase text-xl">Soyağacı Boş</h3>
@@ -664,12 +769,41 @@
                                 </div>
                             </div>
                         ) : (
-                            <div className="flex flex-col items-center gap-24 py-10">
-                                {roots.map(root => (
-                                    <FamilyNode key={root.id} memberId={root.id} />
-                                ))}
+                            <div
+                                className="pan-zoom-canvas"
+                                style={{ transform: `translate(calc(-50% + ${pan.x}px), ${pan.y}px) scale(${zoom})` }}
+                            >
+                                <div className="flex flex-col items-center gap-24 py-10 px-10">
+                                    {roots.map(root => (
+                                        <FamilyNode key={root.id} memberId={root.id} />
+                                    ))}
+                                </div>
                             </div>
                         )}
+
+                        {/* Zoom kontrolleri */}
+                        <div className="zoom-controls absolute bottom-6 right-6 flex flex-col gap-2 bg-white/90 backdrop-blur rounded-2xl shadow-lg border border-purple-100 p-2 z-40">
+                            <button
+                                onClick={zoomIn}
+                                disabled={zoom >= ZOOM_MAX}
+                                className="w-10 h-10 flex items-center justify-center rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold text-xl disabled:opacity-40"
+                                title="Yakınlaştır"
+                            >+</button>
+                            <button
+                                onClick={zoomOut}
+                                disabled={zoom <= ZOOM_MIN}
+                                className="w-10 h-10 flex items-center justify-center rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold text-xl disabled:opacity-40"
+                                title="Uzaklaştır"
+                            >−</button>
+                            <button
+                                onClick={resetView}
+                                className="w-10 h-10 flex items-center justify-center rounded-xl bg-gray-50 hover:bg-gray-100 text-gray-600 text-[10px] font-bold"
+                                title="Sıfırla"
+                            >1:1</button>
+                            <div className="text-center text-[10px] text-gray-500 font-bold pt-1 border-t border-gray-100">
+                                {Math.round(zoom * 100)}%
+                            </div>
+                        </div>
                     </main>
 
                     {modalMode && (
