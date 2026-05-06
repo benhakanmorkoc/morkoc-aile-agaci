@@ -190,8 +190,15 @@
                 startMidX: 0, startMidY: 0
             });
 
+            // Touch handler içinde güncel pan/zoom değerlerine ref üzerinden ulaşmak için
+            const panRef  = useRef(pan);
+            const zoomRef = useRef(zoom);
+            useEffect(() => { panRef.current = pan; }, [pan]);
+            useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+
             const fileInputRef = useRef(null);
             const viewportRef = useRef(null);
+            const canvasRef = useRef(null);
 
             // 1) Supabase Kurulumu
             useEffect(() => {
@@ -532,29 +539,53 @@
                 if (e.target.closest('.zoom-controls')) return;
 
                 setIsPanning(true);
+                liveRef.current.x = panRef.current.x;
+                liveRef.current.y = panRef.current.y;
+                liveRef.current.z = zoomRef.current;
                 panStartRef.current = {
                     x: e.clientX,
                     y: e.clientY,
-                    panX: pan.x,
-                    panY: pan.y
+                    panX: liveRef.current.x,
+                    panY: liveRef.current.y
                 };
             };
 
             const handleViewportMouseMove = (e) => {
                 if (!isPanning) return;
-                setPan({
-                    x: panStartRef.current.panX + (e.clientX - panStartRef.current.x),
-                    y: panStartRef.current.panY + (e.clientY - panStartRef.current.y)
-                });
+                liveRef.current.x = panStartRef.current.panX + (e.clientX - panStartRef.current.x);
+                liveRef.current.y = panStartRef.current.panY + (e.clientY - panStartRef.current.y);
+                scheduleTransform();
             };
 
-            const stopPanning = () => setIsPanning(false);
+            const stopPanning = () => {
+                if (isPanning) {
+                    setPan({ x: liveRef.current.x, y: liveRef.current.y });
+                }
+                setIsPanning(false);
+            };
 
             // Mobil dokunmatik (1 parmak pan, 2 parmak pinch zoom)
+            // Performans için transform doğrudan DOM'a yazılır, state sadece touchend'de güncellenir.
             const getDistance = (t1, t2) => {
                 const dx = t1.clientX - t2.clientX;
                 const dy = t1.clientY - t2.clientY;
                 return Math.sqrt(dx * dx + dy * dy);
+            };
+
+            const liveRef = useRef({ x: 0, y: 0, z: 1 });
+            const rafRef  = useRef(null);
+
+            const applyTransform = () => {
+                rafRef.current = null;
+                const c = canvasRef.current;
+                if (!c) return;
+                const { x, y, z } = liveRef.current;
+                c.style.transform = `translate(calc(-50% + ${x}px), ${y}px) scale(${z})`;
+            };
+
+            const scheduleTransform = () => {
+                if (rafRef.current != null) return;
+                rafRef.current = requestAnimationFrame(applyTransform);
             };
 
             useEffect(() => {
@@ -567,16 +598,21 @@
                         if (e.touches.length < 2) return;
                     }
 
+                    // O anki canlı pan/zoom değerlerini al
+                    liveRef.current.x = panRef.current.x;
+                    liveRef.current.y = panRef.current.y;
+                    liveRef.current.z = zoomRef.current;
+
                     if (e.touches.length === 1) {
                         const t = e.touches[0];
                         touchStateRef.current = {
                             mode: 'pan',
                             startX: t.clientX,
                             startY: t.clientY,
-                            startPanX: pan.x,
-                            startPanY: pan.y,
+                            startPanX: liveRef.current.x,
+                            startPanY: liveRef.current.y,
                             startDistance: 0,
-                            startZoom: zoom,
+                            startZoom: liveRef.current.z,
                             startMidX: 0,
                             startMidY: 0
                         };
@@ -585,14 +621,14 @@
                         const t2 = e.touches[1];
                         const rect = el.getBoundingClientRect();
                         const midX = (t1.clientX + t2.clientX) / 2 - rect.left - rect.width / 2;
-                        const midY = (t1.clientY + t2.clientY) / 2 - rect.top - rect.height / 2;
+                        const midY = (t1.clientY + t2.clientY) / 2 - rect.top  - rect.height / 2;
                         touchStateRef.current = {
                             mode: 'pinch',
                             startX: 0, startY: 0,
-                            startPanX: pan.x,
-                            startPanY: pan.y,
+                            startPanX: liveRef.current.x,
+                            startPanY: liveRef.current.y,
                             startDistance: getDistance(t1, t2),
-                            startZoom: zoom,
+                            startZoom: liveRef.current.z,
                             startMidX: midX,
                             startMidY: midY
                         };
@@ -606,10 +642,9 @@
                     if (state.mode === 'pan' && e.touches.length === 1) {
                         e.preventDefault();
                         const t = e.touches[0];
-                        setPan({
-                            x: state.startPanX + (t.clientX - state.startX),
-                            y: state.startPanY + (t.clientY - state.startY)
-                        });
+                        liveRef.current.x = state.startPanX + (t.clientX - state.startX);
+                        liveRef.current.y = state.startPanY + (t.clientY - state.startY);
+                        scheduleTransform();
                     } else if (state.mode === 'pinch' && e.touches.length === 2) {
                         e.preventDefault();
                         const t1 = e.touches[0];
@@ -619,16 +654,23 @@
                         const nextZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, state.startZoom * factor));
                         const realFactor = nextZoom / state.startZoom;
 
-                        setZoom(nextZoom);
-                        setPan({
-                            x: state.startMidX - (state.startMidX - state.startPanX) * realFactor,
-                            y: state.startMidY - (state.startMidY - state.startPanY) * realFactor
-                        });
+                        liveRef.current.z = nextZoom;
+                        liveRef.current.x = state.startMidX - (state.startMidX - state.startPanX) * realFactor;
+                        liveRef.current.y = state.startMidY - (state.startMidY - state.startPanY) * realFactor;
+                        scheduleTransform();
                     }
+                };
+
+                const syncStateFromLive = () => {
+                    setPan({ x: liveRef.current.x, y: liveRef.current.y });
+                    setZoom(liveRef.current.z);
                 };
 
                 const onTouchEnd = (e) => {
                     if (e.touches.length === 0) {
+                        if (touchStateRef.current.mode) {
+                            syncStateFromLive();
+                        }
                         touchStateRef.current.mode = null;
                     } else if (e.touches.length === 1) {
                         const t = e.touches[0];
@@ -636,10 +678,10 @@
                             mode: 'pan',
                             startX: t.clientX,
                             startY: t.clientY,
-                            startPanX: pan.x,
-                            startPanY: pan.y,
+                            startPanX: liveRef.current.x,
+                            startPanY: liveRef.current.y,
                             startDistance: 0,
-                            startZoom: zoom,
+                            startZoom: liveRef.current.z,
                             startMidX: 0,
                             startMidY: 0
                         };
@@ -656,8 +698,9 @@
                     el.removeEventListener('touchmove', onTouchMove);
                     el.removeEventListener('touchend', onTouchEnd);
                     el.removeEventListener('touchcancel', onTouchEnd);
+                    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
                 };
-            }, [pan, zoom, isAuthenticated]);
+            }, [isAuthenticated]);
 
             const focusOnMember = (id) => {
                 setSearchTerm('');
@@ -958,6 +1001,7 @@
                             </div>
                         ) : (
                             <div
+                                ref={canvasRef}
                                 className="pan-zoom-canvas"
                                 style={{ transform: `translate(calc(-50% + ${pan.x}px), ${pan.y}px) scale(${zoom})` }}
                             >
