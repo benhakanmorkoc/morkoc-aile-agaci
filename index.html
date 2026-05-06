@@ -73,15 +73,29 @@
         /* Zoom kontrolleri her zaman ekran sağ-altta */
         .zoom-controls {
             position: fixed;
-            right: 24px;
-            bottom: 24px;
+            right: 16px;
+            bottom: 16px;
             z-index: 90;
         }
         .zoom-controls button {
             transition: all 0.15s ease;
+            touch-action: manipulation;
         }
         .zoom-controls button:hover {
             transform: translateY(-1px);
+        }
+        @media (min-width: 640px) {
+            .zoom-controls { right: 24px; bottom: 24px; }
+        }
+
+        /* Mobilde hover ile yakınlaştırma yerine basılı tutma davranışı */
+        @media (hover: none) {
+            .photo-zoom-wrap:hover { transform: none; box-shadow: none; z-index: auto; }
+            .photo-zoom-wrap:active {
+                transform: scale(2.2);
+                z-index: 60;
+                box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+            }
         }
 
         /* Eş çifti çerçevesi */
@@ -169,6 +183,12 @@
             const [pan, setPan] = useState({ x: 0, y: 0 });
             const [isPanning, setIsPanning] = useState(false);
             const panStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+            const touchStateRef = useRef({
+                mode: null, startX: 0, startY: 0,
+                startPanX: 0, startPanY: 0,
+                startDistance: 0, startZoom: 1,
+                startMidX: 0, startMidY: 0
+            });
 
             const fileInputRef = useRef(null);
             const viewportRef = useRef(null);
@@ -530,6 +550,115 @@
 
             const stopPanning = () => setIsPanning(false);
 
+            // Mobil dokunmatik (1 parmak pan, 2 parmak pinch zoom)
+            const getDistance = (t1, t2) => {
+                const dx = t1.clientX - t2.clientX;
+                const dy = t1.clientY - t2.clientY;
+                return Math.sqrt(dx * dx + dy * dy);
+            };
+
+            useEffect(() => {
+                const el = viewportRef.current;
+                if (!el) return;
+
+                const onTouchStart = (e) => {
+                    const target = e.target;
+                    if (target.closest && (target.closest('[data-member-id]') || target.closest('.zoom-controls'))) {
+                        if (e.touches.length < 2) return;
+                    }
+
+                    if (e.touches.length === 1) {
+                        const t = e.touches[0];
+                        touchStateRef.current = {
+                            mode: 'pan',
+                            startX: t.clientX,
+                            startY: t.clientY,
+                            startPanX: pan.x,
+                            startPanY: pan.y,
+                            startDistance: 0,
+                            startZoom: zoom,
+                            startMidX: 0,
+                            startMidY: 0
+                        };
+                    } else if (e.touches.length === 2) {
+                        const t1 = e.touches[0];
+                        const t2 = e.touches[1];
+                        const rect = el.getBoundingClientRect();
+                        const midX = (t1.clientX + t2.clientX) / 2 - rect.left - rect.width / 2;
+                        const midY = (t1.clientY + t2.clientY) / 2 - rect.top - rect.height / 2;
+                        touchStateRef.current = {
+                            mode: 'pinch',
+                            startX: 0, startY: 0,
+                            startPanX: pan.x,
+                            startPanY: pan.y,
+                            startDistance: getDistance(t1, t2),
+                            startZoom: zoom,
+                            startMidX: midX,
+                            startMidY: midY
+                        };
+                    }
+                };
+
+                const onTouchMove = (e) => {
+                    const state = touchStateRef.current;
+                    if (!state.mode) return;
+
+                    if (state.mode === 'pan' && e.touches.length === 1) {
+                        e.preventDefault();
+                        const t = e.touches[0];
+                        setPan({
+                            x: state.startPanX + (t.clientX - state.startX),
+                            y: state.startPanY + (t.clientY - state.startY)
+                        });
+                    } else if (state.mode === 'pinch' && e.touches.length === 2) {
+                        e.preventDefault();
+                        const t1 = e.touches[0];
+                        const t2 = e.touches[1];
+                        const distance = getDistance(t1, t2);
+                        const factor = distance / (state.startDistance || 1);
+                        const nextZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, state.startZoom * factor));
+                        const realFactor = nextZoom / state.startZoom;
+
+                        setZoom(nextZoom);
+                        setPan({
+                            x: state.startMidX - (state.startMidX - state.startPanX) * realFactor,
+                            y: state.startMidY - (state.startMidY - state.startPanY) * realFactor
+                        });
+                    }
+                };
+
+                const onTouchEnd = (e) => {
+                    if (e.touches.length === 0) {
+                        touchStateRef.current.mode = null;
+                    } else if (e.touches.length === 1) {
+                        const t = e.touches[0];
+                        touchStateRef.current = {
+                            mode: 'pan',
+                            startX: t.clientX,
+                            startY: t.clientY,
+                            startPanX: pan.x,
+                            startPanY: pan.y,
+                            startDistance: 0,
+                            startZoom: zoom,
+                            startMidX: 0,
+                            startMidY: 0
+                        };
+                    }
+                };
+
+                el.addEventListener('touchstart', onTouchStart, { passive: true });
+                el.addEventListener('touchmove', onTouchMove, { passive: false });
+                el.addEventListener('touchend', onTouchEnd, { passive: true });
+                el.addEventListener('touchcancel', onTouchEnd, { passive: true });
+
+                return () => {
+                    el.removeEventListener('touchstart', onTouchStart);
+                    el.removeEventListener('touchmove', onTouchMove);
+                    el.removeEventListener('touchend', onTouchEnd);
+                    el.removeEventListener('touchcancel', onTouchEnd);
+                };
+            }, [pan, zoom, isAuthenticated]);
+
             const focusOnMember = (id) => {
                 setSearchTerm('');
                 setHighlightedId(id);
@@ -750,29 +879,30 @@
 
             return (
                 <div className="min-h-screen flex flex-col">
-                    <header className="h-16 bg-white border-b flex items-center justify-between px-8 shadow-sm z-50">
-                        <div className="flex items-center gap-3">
-                            <div className="bg-purple-600 p-2 rounded-lg text-white shadow">
+                    <header className="h-16 bg-white border-b flex items-center justify-between px-3 sm:px-8 shadow-sm z-50 gap-2">
+                        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                            <div className="bg-purple-600 p-2 rounded-lg text-white shadow flex-shrink-0">
                                 <Icon name="tree" className="w-5 h-5" />
                             </div>
-                            <div>
-                                <h1 className="font-bold text-sm uppercase text-gray-800 leading-none">Morkoç Ailesi</h1>
+                            <div className="min-w-0">
+                                <h1 className="font-bold text-xs sm:text-sm uppercase text-gray-800 leading-none truncate">Morkoç Ailesi</h1>
                                 {userRole === 'visitor' && (
                                     <span className="text-[10px] text-purple-600 font-extrabold flex items-center gap-1 mt-1">
                                         <Icon name="eye" className="w-3 h-3" />
-                                        İZLEME MODU
+                                        <span className="hidden xs:inline">İZLEME MODU</span>
+                                        <span className="xs:hidden">İZLEME</span>
                                     </span>
                                 )}
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
                             <div className="relative">
                                 <Icon name="search" className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                                 <input
                                     type="text"
-                                    placeholder="İsimle ara..."
-                                    className="pl-10 pr-4 py-2.5 bg-gray-100 rounded-full text-sm outline-none w-48 focus:w-64 transition-all"
+                                    placeholder="İsim ara..."
+                                    className="pl-9 pr-3 py-2 sm:py-2.5 bg-gray-100 rounded-full text-sm outline-none w-32 sm:w-48 focus:w-44 sm:focus:w-64 transition-all"
                                     value={searchTerm}
                                     onChange={e => setSearchTerm(e.target.value)}
                                 />
@@ -806,7 +936,7 @@
                         onMouseMove={handleViewportMouseMove}
                         onMouseUp={stopPanning}
                         onMouseLeave={stopPanning}
-                        className={`pan-zoom-viewport flex-1 bg-white m-4 rounded-[2.5rem] shadow-inner border border-purple-100 ${isPanning ? 'is-panning' : ''}`}
+                        className={`pan-zoom-viewport flex-1 bg-white m-2 sm:m-4 rounded-2xl sm:rounded-[2.5rem] shadow-inner border border-purple-100 ${isPanning ? 'is-panning' : ''}`}
                     >
                         {familyMembers.length === 0 && !isLoading ? (
                             <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -839,23 +969,23 @@
                             </div>
                         )}
 
-                        {/* Zoom kontrolleri */}
-                        <div className="zoom-controls absolute bottom-6 right-6 flex flex-col gap-2 bg-white/90 backdrop-blur rounded-2xl shadow-lg border border-purple-100 p-2 z-40">
+                        {/* Zoom kontrolleri (her zaman ekran sağ alt) */}
+                        <div className="zoom-controls flex flex-col gap-1.5 bg-white/95 backdrop-blur rounded-2xl shadow-xl border border-purple-100 p-1.5">
                             <button
                                 onClick={zoomIn}
                                 disabled={zoom >= ZOOM_MAX}
-                                className="w-10 h-10 flex items-center justify-center rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold text-xl disabled:opacity-40"
+                                className="w-11 h-11 flex items-center justify-center rounded-xl bg-purple-50 hover:bg-purple-100 active:bg-purple-200 text-purple-700 font-bold text-2xl disabled:opacity-40"
                                 title="Yakınlaştır"
                             >+</button>
                             <button
                                 onClick={zoomOut}
                                 disabled={zoom <= ZOOM_MIN}
-                                className="w-10 h-10 flex items-center justify-center rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold text-xl disabled:opacity-40"
+                                className="w-11 h-11 flex items-center justify-center rounded-xl bg-purple-50 hover:bg-purple-100 active:bg-purple-200 text-purple-700 font-bold text-2xl disabled:opacity-40"
                                 title="Uzaklaştır"
                             >−</button>
                             <button
                                 onClick={resetView}
-                                className="w-10 h-10 flex items-center justify-center rounded-xl bg-gray-50 hover:bg-gray-100 text-gray-600 text-[10px] font-bold"
+                                className="w-11 h-11 flex items-center justify-center rounded-xl bg-gray-50 hover:bg-gray-100 active:bg-gray-200 text-gray-600 text-[10px] font-bold"
                                 title="Sıfırla"
                             >1:1</button>
                             <div className="text-center text-[10px] text-gray-500 font-bold pt-1 border-t border-gray-100">
@@ -865,8 +995,8 @@
                     </main>
 
                     {modalMode && (
-                        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm">
-                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden">
+                        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[100] p-3 sm:p-4 backdrop-blur-sm overflow-y-auto">
+                            <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden my-auto">
                                 <div className="p-6 border-b flex justify-between items-center bg-gray-50">
                                     <h3 className="font-bold uppercase text-gray-800">
                                         {modalMode === 'edit'
