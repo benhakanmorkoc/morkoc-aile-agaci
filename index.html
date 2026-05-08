@@ -158,7 +158,8 @@
                 plus: <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
                 drag: <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>,
                 parent: <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="20" x2="12" y2="6"/><polyline points="5 13 12 6 19 13"/><circle cx="12" cy="3" r="1.5" fill="currentColor"/></svg>,
-                sibling: <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                sibling: <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+                pray: <svg className={className} viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M9.5 2.5a1.5 1.5 0 0 1 1.5 1.5v7.2l1-.5V5.5a1.5 1.5 0 0 1 3 0v6.6l1.7 1.7c.7.7 1.05 1.65 1.05 2.6V20a2 2 0 0 1-2 2H12c-.45 0-.9-.18-1.2-.5l-5-5a1.5 1.5 0 1 1 2.1-2.1L9.5 16V4a1.5 1.5 0 0 1 0-1.5z"/><path d="M14.5 2.5a1.5 1.5 0 0 0-1.5 1.5v7.2l-1-.5V5.5a1.5 1.5 0 0 0-3 0v6.6L7.3 13.8c-.7.7-1.05 1.65-1.05 2.6V20a2 2 0 0 0 2 2H12c.45 0 .9-.18 1.2-.5l5-5a1.5 1.5 0 1 0-2.1-2.1L14.5 16V4a1.5 1.5 0 0 0 0-1.5z" opacity="0.55"/></svg>
             };
             return icons[name] || null;
         };
@@ -904,9 +905,20 @@
 
                         <h4 className="font-bold text-gray-800 text-sm truncate pr-2">{member.name}</h4>
                         <div className="mt-1 flex flex-col items-start gap-1">
-                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${member.is_alive === 'Evet' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>
-                                {member.is_alive === 'Evet' ? 'HAYATTA' : 'VEFAT'}
-                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${member.is_alive === 'Evet' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>
+                                    {member.is_alive === 'Evet' ? 'HAYATTA' : 'VEFAT'}
+                                </span>
+                                {member.is_alive !== 'Evet' && (
+                                    <span
+                                        className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1"
+                                        title="Ruhuna El Fatiha"
+                                    >
+                                        <Icon name="pray" className="w-3 h-3" />
+                                        Ruhuna El Fatiha
+                                    </span>
+                                )}
+                            </div>
                             {member.parents_info && (
                                 <p className="text-[9px] text-gray-500 italic truncate w-full" title={member.parents_info}>
                                     Ailesi: {member.parents_info}
