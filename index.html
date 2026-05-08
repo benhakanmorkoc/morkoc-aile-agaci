@@ -508,6 +508,8 @@
             };
 
             // 7a) Üye istatistikleri: doğrudan çocuk sayısı + toplam altsoy
+            //     Çiftler ortak çocukları paylaşır; çocukların parent_id'si eşlerden herhangi
+            //     birine ait olabileceği için sayım "çift olarak in" mantığıyla yapılır.
             const memberStats = useMemo(() => {
                 const childrenMap = {};
                 familyMembers.forEach(m => {
@@ -517,36 +519,48 @@
                     }
                 });
 
-                const descendantsCache = {};
-                const countDesc = (id, visited = new Set()) => {
-                    if (visited.has(id)) return 0;
-                    visited.add(id);
-                    if (descendantsCache[id] != null) return descendantsCache[id];
+                const memberById = {};
+                familyMembers.forEach(m => { memberById[m.id] = m; });
 
-                    const kids = childrenMap[id] || [];
-                    let total = kids.length;
-                    for (const kid of kids) {
-                        total += countDesc(kid, visited);
-                    }
-                    descendantsCache[id] = total;
-                    return total;
+                // Verilen kişinin (ve eşinin) tüm altsoyunu sayar.
+                const countDescendants = (rootId) => {
+                    const visited = new Set();
+
+                    const walk = (id) => {
+                        if (visited.has(id)) return 0;
+                        visited.add(id);
+
+                        const m = memberById[id];
+                        if (!m) return 0;
+
+                        // Çift olarak işle: bu kişi + eşi
+                        const personIds = [id];
+                        if (m.spouse_id && !visited.has(m.spouse_id)) {
+                            visited.add(m.spouse_id);
+                            personIds.push(m.spouse_id);
+                        }
+
+                        let total = 0;
+                        for (const pid of personIds) {
+                            const kids = childrenMap[pid] || [];
+                            for (const kid of kids) {
+                                if (visited.has(kid)) continue;
+                                total += 1 + walk(kid);
+                            }
+                        }
+                        return total;
+                    };
+
+                    return walk(rootId);
                 };
 
                 const result = {};
                 familyMembers.forEach(m => {
-                    const ownDirect = (childrenMap[m.id] || []).length;
-                    const ownTotal  = countDesc(m.id, new Set());
+                    const directChildren =
+                        (childrenMap[m.id] || []).length +
+                        (m.spouse_id ? (childrenMap[m.spouse_id] || []).length : 0);
 
-                    let directChildren = ownDirect;
-                    let totalDescendants = ownTotal;
-
-                    if (m.spouse_id) {
-                        const spouse = familyMembers.find(f => f.id === m.spouse_id);
-                        if (spouse) {
-                            directChildren  += (childrenMap[spouse.id] || []).length;
-                            totalDescendants += countDesc(spouse.id, new Set());
-                        }
-                    }
+                    const totalDescendants = countDescendants(m.id);
 
                     result[m.id] = { directChildren, totalDescendants };
                 });
